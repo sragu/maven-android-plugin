@@ -223,8 +223,41 @@ public class DexMojo extends AbstractAndroidMojo
         }
     }
 
-    private void runDex( CommandExecutor executor, File outputFile, Set<File> inputFiles ) throws MojoExecutionException
-    {
+    private Set<File> preDex(CommandExecutor executor, Set<File> inputFiles) throws MojoExecutionException {
+        Set<File> filtered = new HashSet();
+        getLog().info("Pre dex-ing libraries for faster dex-ing of the final application.");
+
+        for (File inputFile : inputFiles) {
+            if (inputFile.getName().matches(".*\\.jar$")) {
+                List<String> commands = dexDefaultCommands();
+
+                File predexJar = new File(inputFile.getAbsolutePath() + ".dex");
+                commands.add("--output=" + predexJar.getAbsolutePath());
+                commands.add(inputFile.getAbsolutePath());
+                filtered.add(predexJar);
+
+                if (predexJar.isFile() == false || predexJar.lastModified() < inputFile.lastModified()) {
+                    getLog().info("Pre-dex ing jar: " + inputFile.getAbsolutePath());
+
+                    final String javaExecutable = getJavaExecutable().getAbsolutePath();
+                    getLog().info(javaExecutable + " " + commands.toString());
+                    try {
+                        executor.executeCommand(javaExecutable, commands, project.getBasedir(), false);
+                    } catch (ExecutionException e) {
+                        throw new MojoExecutionException("", e);
+                    }
+                }
+
+            } else {
+                filtered.add(inputFile);
+            }
+        }
+
+        return filtered;
+    }
+
+    private List<String>  dexDefaultCommands() throws MojoExecutionException {
+
         List<String> commands = new ArrayList<String>();
         if ( parsedJvmArguments != null )
         {
@@ -241,8 +274,20 @@ public class DexMojo extends AbstractAndroidMojo
             }
         }
         commands.add( "-jar" );
-        commands.add( getAndroidSdk().getPathForTool( "dx.jar" ) );
+        commands.add(getAndroidSdk().getPathForTool( "dx.jar" ) );
         commands.add( "--dex" );
+
+
+
+        return commands;
+
+    }
+
+    private void runDex( CommandExecutor executor, File outputFile, Set<File> inputFiles ) throws MojoExecutionException
+    {
+        List<String> commands = dexDefaultCommands();
+        Set<File> filteredFiles = preDex(executor, inputFiles);
+
         if ( ! parsedOptimize )
         {
             commands.add( "--no-optimize" );
@@ -257,7 +302,7 @@ public class DexMojo extends AbstractAndroidMojo
             commands.add( "--no-locals" );
         }
 
-        for ( File inputFile : inputFiles )
+        for ( File inputFile : filteredFiles )
         {
             getLog().debug( "Adding dex input: " + inputFile.getAbsolutePath() );
             commands.add( inputFile.getAbsolutePath() );
